@@ -18,7 +18,8 @@ enum TokenKind {
   TOKEN_LET,
   TOKEN_CONST,
   TOKEN_FUNCTION,
-
+  KEYWORDS_LEN, // used for looping
+  
   // other ident types 
   TOKEN_NIL,	    
   TOKEN_IDENT,		
@@ -31,20 +32,36 @@ struct TokenizerState;
 cstring token_to_string(Token *t, TokenizerState *ts);
 
 struct Token {
-  int kind; // can also be char like 'c'
+  int kind; // can also be char like '}'
   i32 row, col;
-  i32 index, len;
+  cstring index;
+  i32 len;
 
-  String string(TokenizerState *ts) {
-    String s = {};
-    s = token_to_string(this, ts); // change into string alias instead of allocing
-    return s;
+  String string() {
+    char *s = (char *)calloc(1000, 1);
+
+    for (int i=0; i < len; i++) {
+      s[i] = index[i];
+    }
+
+    String ret;
+    ret = s;
+    return ret;
+  }
+
+  void match_keyword() {
+    String token_text = string();
+    for (int i=0; i < KEYWORDS_LEN; i++) {
+      if (token_text == keywords[i]) {
+	this->kind = i;
+      }
+    }
   }
 };
 
 struct TokenizerState {
   cstring src_name;
-  cstring src = "main(man, ass, an) { \n" " str s = \"sdfdsf\"; \n";
+  cstring src = "main(man, ass, an) { let x = 3 + 8; } \n";
   i32 row, col;
   i32 index;
   Array<Token> tokens;
@@ -84,21 +101,11 @@ struct TokenizerState {
   }
 };
 
-cstring token_to_string(Token *t, TokenizerState *ts) {
-  char *s = (char *)calloc(1000, 1);
-
-  for (int i=0; i < t->len; i++) {
-    s[i] = ts->src[t->index + i];
-  }
-
-  return s;
-}
-
-void print_token(TokenizerState *ts, Token t) {
-  printf("k:  %4d r:  %4d  c: %4d  i: %4d  l: %2d -- ", t.kind, t.row, t.col, t.index, t.len);
+void print_token(Token t) {
+  printf("k:  %4d r:  %4d  c: %4d  i: %c  l: %2d -- ", t.kind, t.row, t.col, *t.index, t.len);
 
   for (int i=0; i < t.len; i++) {
-    char c = ts->src[t.index + i];
+    char c = t.index[i];
     printf("%c", c);
   }
   
@@ -112,7 +119,7 @@ TokenizerState tokenize(cstring filename) {
 
   while (ts.peek() != 0) {
     char c = ts.peek();
-    Token tok = {TOKEN_NIL, ts.row, ts.col, ts.index, 0};
+    Token tok = {TOKEN_NIL, ts.row, ts.col, ts.src + ts.index, 0};
     
     if (isalpha(c) || c == '_') {
       tok.kind = TOKEN_IDENT;
@@ -120,7 +127,8 @@ TokenizerState tokenize(cstring filename) {
 	c = ts.eat_and_peek();
 	tok.len++;
       }
-     
+      tok.match_keyword(); 
+
     } else if (isdigit(c)) {
       tok.kind = TOKEN_NUMBER;
       while (isdigit(c)) {
@@ -130,7 +138,7 @@ TokenizerState tokenize(cstring filename) {
     } else if (c == '"') {
       tok.kind = TOKEN_STRING;
       c = ts.eat_and_peek(); // move past "
-      tok.index = ts.index; // ignores the starting " of string
+      tok.index = ts.src + ts.index; // ignores the starting " of string
       while (c != '"' && c != 0) {
 	c = ts.eat_and_peek();
 	tok.len++;
@@ -160,7 +168,7 @@ TokenizerState tokenize(cstring filename) {
   
   if (g_compiler_debug_mode) {
     for (int i=0; i < ts.tokens.len; i++) {
-      print_token(&ts, ts.tokens[i]);
+      print_token(ts.tokens[i]);
     }
   }
 

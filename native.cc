@@ -7,6 +7,8 @@ enum NativeValueKind {
 };
 
 struct NativeObject;
+
+// add function_pointer? 
 struct NativeValue {
   int kind;
   union {
@@ -22,7 +24,7 @@ bool streq(cstring one, cstring two) {
 
 struct KeyValue {
   cstring key;
-  NativeValue *value;
+  NativeValue value;
 };
 
 struct NativeObject {
@@ -40,7 +42,7 @@ NativeObject *make_native_object() {
   return no;
 }
 
-void push_key_value(NativeObject *no, cstring key, NativeValue *nv) {
+void push_key_value(NativeObject *no, cstring key, NativeValue nv) {
   if (no->pairs_len == no->pairs_cap) {
     assert(1738 < 0); // do realloc and all later
   }
@@ -50,12 +52,12 @@ void push_key_value(NativeObject *no, cstring key, NativeValue *nv) {
   no->pairs_len++;
 }
 
-void insert_value(NativeObject *no, NativeValue *maybe_key, NativeValue *nv) {
-  if (maybe_key->kind != NATIVE_STRING) {
+void insert_value(NativeObject *no, NativeValue maybe_key, NativeValue nv) {
+  if (maybe_key.kind != NATIVE_STRING) {
     assert(4 < 3); // handle this error, print the gotten type and all
   }
 
-  cstring key = maybe_key->string;
+  cstring key = maybe_key.string;
   
   for (int i=0; i < no->pairs_len; i++) {
     if (streq(key, no->pairs[i].key)) {
@@ -66,12 +68,12 @@ void insert_value(NativeObject *no, NativeValue *maybe_key, NativeValue *nv) {
   push_key_value(no, key, nv);
 }
 
-NativeValue * get_value(NativeObject *no, NativeValue *maybe_key) {
-  if (maybe_key->kind != NATIVE_STRING) {
+NativeValue get_value(NativeObject *no, NativeValue maybe_key) {
+  if (maybe_key.kind != NATIVE_STRING) {
     assert(3 > 3); // handle this error, print the gotten type and all
   }
 
-  cstring key = maybe_key->string;
+  cstring key = maybe_key.string;
     
   for (int i=0; i < no->pairs_len; i++) {
     if (streq(key, no->pairs[i].key)) {
@@ -79,44 +81,51 @@ NativeValue * get_value(NativeObject *no, NativeValue *maybe_key) {
     }
   }
 
-  NativeValue *nv = (NativeValue *)calloc(1, sizeof(NativeValue));
-  nv->kind = NATIVE_UNDEFINED;
+  NativeValue nv = {};
+  nv.kind = NATIVE_UNDEFINED;
 
   push_key_value(no, key, nv);
 
   return nv;
 }
 
-NativeValue * make_js_string(cstring literal) {
-  NativeValue *nv = (NativeValue *)calloc(1, sizeof(NativeValue));
-  nv->kind = NATIVE_STRING;
-  nv->string = literal;
+NativeValue make_js_string(cstring literal) {
+  NativeValue nv = {};
+  nv.kind = NATIVE_STRING;
+  nv.string = literal;
 
   return nv;
 }
 
-NativeValue * make_number(f64 number) {
-  NativeValue *nv = (NativeValue *)calloc(1, sizeof(NativeValue));
-  nv->kind = NATIVE_NUMBER;
-  nv->number = number;
+NativeValue make_number(f64 number) {
+  NativeValue nv = {};
+  nv.kind = NATIVE_NUMBER;
+  nv.number = number;
 
   return nv;
 }
 
-NativeValue * add_numbers(NativeValue *one, NativeValue *two) {
-  if (one->kind != NATIVE_NUMBER) {
+// will make into macro that supports all math
+// also check for divide by zero?
+NativeValue add_numbers(NativeValue one, NativeValue two) {
+  if (one.kind != NATIVE_NUMBER) {
     assert(false);
   }
 
-  if (two->kind != NATIVE_NUMBER) {
+  if (two.kind != NATIVE_NUMBER) {
     assert(false); // add a global context for errors or something
   }
 
-  f64 n = one->number + two->number;
+  f64 n = one.number + two.number;
   return make_number(n);
 }
 
-// have function return NativeValue *, return undefined if they dont do shit
-NativeValue * code(NativeObject *no) {
-  //  NativeValue *nv = get_value(no, "
+// generate this function, it is not a runtime func like the above
+// replace calloc with gc alloc
+// have function return NativeValue, return undefined if they dont do shit
+NativeValue code(NativeObject *no) {
+  NativeValue one = get_value(no, make_js_string("x"));
+  NativeValue two = make_number(34);
+
+  return add_numbers(one, two);
 }
