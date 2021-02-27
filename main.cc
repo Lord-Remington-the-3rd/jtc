@@ -17,7 +17,7 @@ int main() {
   Slice<Token> tokens = {};
   tokens.slice(ts.tokens);
 	       
-  parse_function(&ts, tokens, NULL);
+  _parse_function(&ts, tokens, NULL);
 
   free(ts.tokens.buff);
   global_free();

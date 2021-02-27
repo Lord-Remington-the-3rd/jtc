@@ -29,7 +29,6 @@ enum TokenKind {
 
 struct Token;
 struct TokenizerState;
-cstring token_to_string(Token *t, TokenizerState *ts);
 
 struct Token {
   int kind; // can also be char like '}'

@@ -7,7 +7,11 @@ struct Scope;
 struct ParsingContext;
 struct Cons;
 struct Expression;
+struct LetStatement;
 
+void _parse_function(ParsingContext *pc, Scope *scope);
+void _parse_codeblock(ParsingContext *pc, Scope *scope);
+LetStatement _parse_let_statement(ParsingContext *pc, Scope *scope);
 
 enum ExpressionKind {
   JS_UNDEFINED,		  
@@ -85,9 +89,19 @@ struct Statements {
 // just have stuff declared with let be removed when } is found
 struct CodeBlock {
   Scope *scope;
-  Map<Expression *> locals;
+  Map<LetStatement *> locals;
   Array<LetStatement> statements; // will be array of Statements, but simplifing for now
   Array<CodeBlock> sub_blocks;
+
+  bool add_local(String name, LetStatement ls) {
+    if (locals.find(name.c_str))
+      return false;
+
+    statements.push(ls);
+    locals.insert(name.c_str, statements.buff + (statements.len - 1));
+    
+    return true;
+  }
 };
 
 // remember that locals doesnt map to a js object
@@ -98,6 +112,14 @@ struct Function {
   CodeBlock body;
   Expression *returns; // might have to change to a pointer to a statement?
   // can be multiple returns in function tho? so this seems non sensical, will likely remove
+
+  void add_param(String s, Expression v) {
+    parameters.insert(s.c_str, v);
+  }
+
+  bool find_param(String s) {
+    return parameters.find(s.c_str);
+  }
 };
 
 enum ScopeKind {
@@ -152,205 +174,170 @@ Scope make_scope(Function f) {
 struct ParsingContext {
   TokenizerState *ts;
   Slice<Token> tokens;
+  Token last;
   
+  Token peek() {
+    assert(tokens.len);
+    return tokens[0];
+  }
+
+  Token eat() {
+    assert(tokens.len);
+    last = tokens.pop_front();
+    return last;
+  }
+
+  void error(Token t, cstring msg) {
+    printf("%s:%d:%d: %s \n", ts->src_name, t.row, t.col, msg);
+    exit(1);
+  }
 };
 
-// make parsing context?
-CodeBlock parse_codeblock(TokenizerState *ts, Slice<Token> tokens, Scope *scope);
-  
-void parse_error(TokenizerState *ts, Token t, cstring msg) {
-  printf("%s:%d:%d: %s \n", ts->src_name, t.row, t.col, msg);
-  exit(1);
-}
-
-// remember to add scopes shit
-// pass scope through here? 
-void parse_function(TokenizerState *ts, Slice<Token> tokens, Scope *scope) {
+void _parse_function(ParsingContext *pc, Scope *scope) {
   Function fn = make_function(scope);
   Scope fn_scope = make_scope(fn);
-  
-  Token function_name = tokens.pop_front();
-  if (function_name.kind == TOKEN_IDENT)
-  { 
-    fn.name = function_name.string(); // alias it instead of allocating?
-    puts(fn.name.c_str); // delete later
 
-    Token opening_paran = tokens.pop_front();    
-    if (opening_paran.kind == '(')
-    {      
-      while (tokens[0].kind != ')')
-      {
-	Token arg = tokens.pop_front();
-	if (arg.kind == TOKEN_IDENT)
-	{
-	  // handle default values here eventually?
-	  String arg_name = arg.string();
-	  if (arg_name == fn.name)
-	  {
-	    parse_error(ts, arg, "parameter name cannot be the same as function name");
-	  }
-	  else if (fn.parameters.find(arg_name.c_str))
-	  {
-	    parse_error(ts, arg, "duplicate paramater in parameter list");
-	  }
+  Token function_kwd = pc->peek();
+  if (function_kwd.kind != TOKEN_FUNCTION) 
+    pc->error(function_kwd, "compiler dev error, function keyword token not present");
+   
+  Token function_name = pc->peek();
+  if (function_name.kind != TOKEN_IDENT && scope == NULL)
+    pc->error(function_name, "can't declare clojures in global scope");
+  else if (function_name.kind != TOKEN_IDENT)
+    assert(true == false); // handle clojure
 
-	  fn.parameters.insert(arg_name.c_str, {JS_UNDEFINED}); // maybe refactor into function, also maybe get rid of all uninit memory
-	  puts(arg_name.c_str); // delete later
-	  
-	  Token next = tokens[0];
-	  if (next.kind == ',')
-	  {
-	    tokens.pop_front();
-	    if (tokens[0].kind == ')')
-	    {
-	      parse_error(ts, next, "expected closing parens not comma");
-	    }
-	  }
-	}
-	else
-	{
-	  parse_error(ts, arg, "expected identifier");
-	}
-      }
-      tokens.pop_front(); // gets rid of ) 
+  fn.name = function_name.string();
+  pc->eat(); // eat name
 
-      Token open_bracket = tokens[0];
-      if (open_bracket.kind == '{') {
-	fn.body = parse_codeblock(ts, tokens, &fn_scope);
-	assert(false);
-      } else {
-	parse_error(ts, open_bracket, "expected { after parameter list");
-      }
+  Token opening_paran = pc->eat();
+  if (opening_paran.kind != '(')
+    pc->error(opening_paran, "expected '('"); // add more error functions?
+
+  while (true) {
+    Token peek = pc->peek();
+    if (peek.kind == TOKEN_NIL)
+      pc->error(peek, "reached end-of-file while parsing paramater list");
+    else if (peek.kind == ')')
+      break;
+
+    Token param_name = pc->eat();
+    if (param_name.kind != TOKEN_IDENT)
+      pc->error(param_name, "expected identifier for argument");
+
+    { // validate argument name, and insert if passes
+      String param_name_string = param_name.string();
+      if (param_name_string == fn.name)
+	pc->error(param_name, "param cannot have the same name as function");
+      else if (fn.find_param(param_name_string))
+	pc->error(param_name, "duplicate parameter name"); // add map support for my strings
+
+      fn.add_param(param_name_string, {JS_UNDEFINED});
+      // add default values sometime
     }
-    else
-    {
-      parse_error(ts, opening_paran, "expected opening parens");
-    }
-  }
-  else
-  {
-    // handle name taken error (allow shadowing?)
-    // also handle if it is not TOKEN_IDENT
-    assert((false)); // lambdas not supported
-  }
-  
-}
-
-Expression * make_number_expr(TokenizerState *ts, Token t) {
-  Expression *e = (Expression *)calloc(1, sizeof(Expression));
-  char *c; // ignore this, makes function below work
-  cstring token_text = t.string().c_str;
-  *e = {
-    .kind = JS_NUMBER,
-    .number = strtod(token_text, &c)
-  };
-
-  return e;
-}
-
-Expression * parse_expr(TokenizerState *ts, Slice<Token> tokens, Scope *scope) {
-  Expression *e = (Expression *)calloc(1, sizeof(Expression));
-
-  Token t = tokens.pop_front(); puts(t.string().c_str); // delete later
-  if (t.kind == TOKEN_STRING)
-  {
-    *e = {
-      .kind = JS_STRING,
-      .string = t.string(),	    
-    };
-  }
-  else if (t.kind == TOKEN_NUMBER)
-  {
-    e = make_number_expr(ts, t);
-  }
-  else
-  {
-    puts("UNIMPLEMETNED!"); exit(0);
-  }
-
-  Token next = tokens.pop_front();
-  if (next.kind == '+') // add some func to detect all this math crap
-  {
-    Token num = tokens.pop_front();
-
-    BinaryOp *bop = (BinaryOp *)calloc(1, sizeof(BinaryOp));
-    bop->name = next.kind;
-    bop->left = e;
-    // bop->right = parse_expr(ts, tokens, scope);
-
-    if (num.kind == JS_NUMBER)
-    {
-      bop->right = make_number_expr(ts, num);
-    }
-    puts(num.string().c_str);
     
-    // remember to like fix the op prec as we go up
-    Expression *p = (Expression *)calloc(1, sizeof(Expression));
-    *p = {.kind = JS_BINOP, .binop = bop};
-    
-    return p;
+    if (pc->peek().kind == ',') {
+      pc->eat();
+      Token maybe_rparan = pc->peek();
+      if (maybe_rparan.kind == ')') 
+	pc->error(maybe_rparan, "ended parameter list after comma, expected identifier");
+    }
   }
 
-  if (next.kind != ';')
-  {
-    parse_error(ts, next, "expected semicolon at the end of statement");
-  }
+  Token left_bracket = pc->peek();
+  if (left_bracket.kind != '{') 
+    pc->error(left_bracket, "expected '{' after parameter list");	      
 
-  return e;
+  // parse codeblock
 }
 
-// make a parsing context cuz this shit is outta hand, slice is not getting updated
-// idk if scope is even valid for this? scope should only be relevant to codeblocks and functions
-// and this can only be in codeblocks anyway
-LetStatement parse_let_statement(TokenizerState *ts, Slice<Token> tokens, Scope *scope) {
-  tokens.pop_front();
+void _parse_codeblock(ParsingContext *pc, Scope *scope) {
+  CodeBlock block = make_codeblock(scope);
+  Scope block_scope = make_scope(block);
+
+  Token left_bracket = pc->eat();
+  if (left_bracket.kind != '{')
+    pc->error(left_bracket, "expecting '{' to begin codeblock");
+
+  while (true) {
+    Token peek = pc->peek();
+    if (peek.kind == TOKEN_NIL)
+      pc->error(left_bracket, "reached end-of-file while parsing codeblock, please match '{' with closing brace");
+    else if (peek.kind == '}')
+      break;
+
+    // add other statements here and all later
+    if (peek.kind != TOKEN_LET)
+      pc->error(peek, "expected start of statement (i.e, let, for, while...)");
+
+    LetStatement ls = _parse_let_statement(pc, &block_scope);
+    // check for semi colon here
+      
+  }
+}
+
+// only checks if function params are re declared in codeblock
+// codeblocks check their local scope upon insertion of new let identifier
+bool is_declared(String name, Scope *scope) {
+  assert(scope); // get rid of this eventually cuz global scope has a null scope
   
+  if (scope->kind == SCOPE_FUNCTION) {
+    return scope->function.find_param(name);
+  }
+   
+  return false;
+}
+
+LetStatement _parse_let_statement(ParsingContext *pc, Scope *scope) {
   LetStatement ls = {};
 
-  Token name = tokens.pop_front();
-  if (name.kind == TOKEN_IDENT) {
-    ls.var_name = name.string();
-  } else {
-    parse_error(ts, name, "expected identifer after 'let' ");
-  }
+  Token let = pc->eat();
+  if (let.kind != TOKEN_LET)
+    pc->error(let, "compiler dev error, let keyword not present");
 
-  Token equals_sign = tokens.pop_front();  
-  if (equals_sign.kind != '=') {
-    parse_error(ts, equals_sign, "expected '=' after identifier");
-  }
+  Token ident_name = pc->eat();
+  if (ident_name.kind != TOKEN_IDENT)
+    pc->error(ident_name, "expected ident after let keyword");
 
-  // parse right side shit
-  ls.value = parse_expr(ts, tokens, scope);
+  ls.var_name = ident_name.string();
+  
+  Token equals_sign = pc->eat();
+  if (equals_sign.kind != '=')
+    pc->error(equals_sign, "expected '=' after ident");
+
+  // also add expression later
+  Expression *e = _parse_expr(pc, scope);
   
   return ls;
 }
 
-CodeBlock parse_codeblock(TokenizerState *ts, Slice<Token> tokens, Scope *scope) {
-  tokens.pop_front();
-  
-  CodeBlock c = make_codeblock(scope); 
-  // make scope for codeblocks and functions
-  
-  while (tokens[0].kind != '}')
-  {
-    Token t = tokens[0]; // any statement starter, like let, for 
-    if (t.kind == TOKEN_LET) {
-      LetStatement ls = parse_let_statement(ts, tokens, scope);
-      Token semi = tokens.pop_front();
-      if (semi.kind != ';') { // put this for all valid statements after if else block
-	puts(semi.string().c_str); 
-	parse_error(ts, semi, "expected semicolon at the end of statement");
-      }
-	   
-    } else {
-      parse_error(ts, t, "expected start of statement (i.e, let, for, while...)");
-    }
+Expression * _parse_expr(ParsingContext *pc, Scope *scope) {
+  Expression *ret = NULL;
+  Expression *e = (Expression *)calloc(1, sizeof(Expression));
 
+  Token t = pc->eat();
+  if (t.kind == TOKEN_NUMBER) {
+    char *c;
+    cstring text = t.string().c_str;
+    *e = {.kind=JS_NUMBER, strtod(text, &c)};
+  } else {
+    assert(false);
+  }
+  
+  Token op = pc->peek();
+  if (op.kind == '+') {
+    pc->eat();
+    BinaryOp *bop = (BinaryOp *)calloc(1, sizeof(BinaryOp));
+    bop->name = op.name;
+    bop->left = e;
+    bop->right = _parse_expr(pc, scope);
+
+   Expression *bop_expr = (Expression *)calloc(1, sizeof(Expression));
+   *bop_expr = {.kind = JS_BOP, .binop = bop};
+   ret = bop_expr;
+  } else {
+    assert(false);
   }
 
-  tokens.pop_front(); // remove '}' (the end of the block)
-  
-  // if let keyword is hit then do whatever, u know the deal
-  // add keyword detection to tokenizer 
-  return c;
+  return ret;
 }
