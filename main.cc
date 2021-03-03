@@ -16,9 +16,13 @@ int main() {
 
   Slice<Token> tokens = {};
   tokens.slice(ts.tokens);
-	       
-  _parse_function(&ts, tokens, NULL);
 
+  ParsingContext pc = {};
+  pc.tokens = tokens;
+  pc.ts = &ts;
+  
+  // _parse_function(&pc, NULL);
+  parse_expr(&pc, NULL);
   free(ts.tokens.buff);
   global_free();
 }

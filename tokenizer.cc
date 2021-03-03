@@ -58,9 +58,10 @@ struct Token {
   }
 };
 
+// (3 + (3 + (3)))
 struct TokenizerState {
   cstring src_name;
-  cstring src = "main(man, ass, an) { let x = 3 + 8; } \n";
+  cstring src = "3 + 3 + 3; main(man, ass, an) { let x = 3 + 8; } \n";
   i32 row, col;
   i32 index;
   Array<Token> tokens;

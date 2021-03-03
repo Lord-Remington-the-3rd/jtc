@@ -9,9 +9,10 @@ struct Cons;
 struct Expression;
 struct LetStatement;
 
-void _parse_function(ParsingContext *pc, Scope *scope);
-void _parse_codeblock(ParsingContext *pc, Scope *scope);
-LetStatement _parse_let_statement(ParsingContext *pc, Scope *scope);
+void parse_function(ParsingContext *pc, Scope *scope);
+void parse_codeblock(ParsingContext *pc, Scope *scope);
+LetStatement parse_let_statement(ParsingContext *pc, Scope *scope);
+Expression * parse_expr(ParsingContext *pc, Scope *scope);
 
 enum ExpressionKind {
   JS_UNDEFINED,		  
@@ -193,7 +194,7 @@ struct ParsingContext {
   }
 };
 
-void _parse_function(ParsingContext *pc, Scope *scope) {
+void parse_function(ParsingContext *pc, Scope *scope) {
   Function fn = make_function(scope);
   Scope fn_scope = make_scope(fn);
 
@@ -212,7 +213,7 @@ void _parse_function(ParsingContext *pc, Scope *scope) {
 
   Token opening_paran = pc->eat();
   if (opening_paran.kind != '(')
-    pc->error(opening_paran, "expected '('"); // add more error functions?
+    pc->error(opening_paran, "expected '('"); 
 
   while (true) {
     Token peek = pc->peek();
@@ -251,7 +252,7 @@ void _parse_function(ParsingContext *pc, Scope *scope) {
   // parse codeblock
 }
 
-void _parse_codeblock(ParsingContext *pc, Scope *scope) {
+void parse_codeblock(ParsingContext *pc, Scope *scope) {
   CodeBlock block = make_codeblock(scope);
   Scope block_scope = make_scope(block);
 
@@ -270,7 +271,7 @@ void _parse_codeblock(ParsingContext *pc, Scope *scope) {
     if (peek.kind != TOKEN_LET)
       pc->error(peek, "expected start of statement (i.e, let, for, while...)");
 
-    LetStatement ls = _parse_let_statement(pc, &block_scope);
+    LetStatement ls = parse_let_statement(pc, &block_scope);
     // check for semi colon here
       
   }
@@ -288,7 +289,7 @@ bool is_declared(String name, Scope *scope) {
   return false;
 }
 
-LetStatement _parse_let_statement(ParsingContext *pc, Scope *scope) {
+LetStatement parse_let_statement(ParsingContext *pc, Scope *scope) {
   LetStatement ls = {};
 
   Token let = pc->eat();
@@ -306,12 +307,12 @@ LetStatement _parse_let_statement(ParsingContext *pc, Scope *scope) {
     pc->error(equals_sign, "expected '=' after ident");
 
   // also add expression later
-  Expression *e = _parse_expr(pc, scope);
+  Expression *e = parse_expr(pc, scope);
   
   return ls;
 }
 
-Expression * _parse_expr(ParsingContext *pc, Scope *scope) {
+Expression * parse_expr(ParsingContext *pc, Scope *scope) {
   Expression *ret = NULL;
   Expression *e = (Expression *)calloc(1, sizeof(Expression));
 
@@ -319,24 +320,26 @@ Expression * _parse_expr(ParsingContext *pc, Scope *scope) {
   if (t.kind == TOKEN_NUMBER) {
     char *c;
     cstring text = t.string().c_str;
-    *e = {.kind=JS_NUMBER, strtod(text, &c)};
+    *e = {.kind=JS_NUMBER, .number=strtod(text, &c)};
   } else {
-    assert(false);
+    pc->error(t, "invalid expression");
   }
   
   Token op = pc->peek();
-  if (op.kind == '+') {
+  if (op.kind == ';') {
+    return e;
+  } else if (op.kind == '+') {
     pc->eat();
     BinaryOp *bop = (BinaryOp *)calloc(1, sizeof(BinaryOp));
-    bop->name = op.name;
+    bop->name = op.kind;
     bop->left = e;
-    bop->right = _parse_expr(pc, scope);
+    bop->right = parse_expr(pc, scope);
 
    Expression *bop_expr = (Expression *)calloc(1, sizeof(Expression));
-   *bop_expr = {.kind = JS_BOP, .binop = bop};
+   *bop_expr = {.kind = JS_BINOP, .binop = bop};
    ret = bop_expr;
   } else {
-    assert(false);
+    pc->error(op, "invalid expression");
   }
 
   return ret;
